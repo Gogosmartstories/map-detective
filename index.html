@@ -42,6 +42,7 @@ h1{font-family:var(--display);font-weight:700;font-size:clamp(26px,3.4vw,38px);m
 .stars{font-variant-numeric:tabular-nums;font-weight:700;color:var(--glow)}
 .hbtn{background:transparent;color:#fff;border:1px solid #3A5378;border-radius:8px;padding:6px 12px;font-size:14px}
 .hbtn:hover{background:var(--night-2)}
+.hbtn[aria-pressed="false"]{color:var(--muted);border-style:dashed}
 
 main{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;padding:16px;max-width:1560px;margin:0 auto}
 @media (max-width:980px){main{grid-template-columns:1fr}}
@@ -148,6 +149,7 @@ footer{max-width:1560px;margin:0 auto;padding:0 16px 20px;font-size:13px;color:#
   <div class="status">
     <div class="dots" id="dots" aria-label="تقدم المهام"></div>
     <span class="stars" id="stars">★ 0 / 4</span>
+    <button class="hbtn" id="sndBtn" type="button" aria-pressed="true">الأصوات: تعمل</button>
     <button class="hbtn" id="fsBtn" type="button">ملء الشاشة</button>
     <button class="hbtn" id="resetBtn" type="button">البدء من جديد</button>
   </div>
@@ -486,7 +488,7 @@ wrap.addEventListener("pointerup",e=>{
 wrap.addEventListener("pointercancel",e=>{ptrs.delete(e.pointerId);});
 wrap.addEventListener("pointerleave",hideTip);
 wrap.addEventListener("wheel",e=>{if(!gl)return;e.preventDefault();userTook();tween=null;cam.r=Math.min(26,Math.max(3.2,cam.r*(1+e.deltaY*.0012)));},{passive:false});
-function dblZoom(p){if(!gl)return;const h=pick(p.x,p.y);if(!h)return;userTook();const [x,z]=pxToWorld(h.x,h.y);flyTo({tx:x,ty:.35,tz:z,r:6.2,th:cam.th,ph:.8},1200);}
+function dblZoom(p){if(!gl)return;const h=pick(p.x,p.y);if(!h)return;userTook();const [x,z]=pxToWorld(h.x,h.y);SFX.whoosh(1200);flyTo({tx:x,ty:.35,tz:z,r:6.2,th:cam.th,ph:.8},1200);}
 function tapAt(p){
   const h=pick(p.x,p.y);
   if(S.mode==="mission"){if(h)attempt(h,p);return;}
@@ -539,6 +541,45 @@ function drawFX(now){
   }else{coEl.style.display="none";fxLead.innerHTML="";}
 }
 
+/* ---------- الأصوات (تُولَّد داخل الصفحة، تعمل دون إنترنت) ---------- */
+const SFX=(()=>{
+  let ac=null,master=null,on=true;
+  try{on=localStorage.getItem("mapSfx")!=="off";}catch(e){}
+  function A(){ if(!on)return null;
+    if(!ac){const C=window.AudioContext||window.webkitAudioContext; if(!C)return null; try{ac=new C();master=ac.createGain();master.gain.value=.55;master.connect(ac.destination);}catch(e){return null;}}
+    if(ac.state==="suspended")ac.resume(); return ac; }
+  function tone(f,t0,d,type,g,f2){const c=A(); if(!c)return; const n=c.currentTime+t0, o=c.createOscillator(), a=c.createGain();
+    o.type=type||"sine"; o.frequency.setValueAtTime(f,n); if(f2)o.frequency.exponentialRampToValueAtTime(f2,n+d);
+    a.gain.setValueAtTime(.0001,n); a.gain.exponentialRampToValueAtTime(g||.2,n+.02); a.gain.exponentialRampToValueAtTime(.0001,n+d);
+    o.connect(a); a.connect(master); o.start(n); o.stop(n+d+.05);}
+  function noise(t0,d,f1,f2,g){const c=A(); if(!c)return; const n=c.currentTime+t0, len=Math.max(1,Math.floor(c.sampleRate*d)), b=c.createBuffer(1,len,c.sampleRate), dd=b.getChannelData(0);
+    for(let i=0;i<len;i++)dd[i]=Math.random()*2-1;
+    const s=c.createBufferSource(); s.buffer=b; const bp=c.createBiquadFilter(); bp.type="bandpass"; bp.Q.value=1.4;
+    bp.frequency.setValueAtTime(f1,n); bp.frequency.exponentialRampToValueAtTime(f2,n+d);
+    const a=c.createGain(); a.gain.setValueAtTime(.0001,n); a.gain.exponentialRampToValueAtTime(g||.3,n+d*.45); a.gain.exponentialRampToValueAtTime(.0001,n+d);
+    s.connect(bp); bp.connect(a); a.connect(master); s.start(n); s.stop(n+d+.05);}
+  return {
+    get on(){return on},
+    toggle(){on=!on; try{localStorage.setItem("mapSfx",on?"on":"off");}catch(e){} if(on)this.click(); return on;},
+    unlock(){A();},
+    click(){tone(880,0,.07,"triangle",.14);},
+    tick(){tone(1500,0,.05,"sine",.1);},
+    whoosh(d){noise(0,(d||1200)/1000*.85,260,2600,.32);},
+    whooshBack(d){noise(0,(d||1200)/1000*.85,2600,260,.26);},
+    arrive(){tone(784,0,.55,"sine",.2);tone(1175,.09,.7,"sine",.15);},
+    pop(){tone(520,0,.14,"sine",.22,1250);tone(1568,.12,.25,"sine",.08);},
+    water(){for(let i=0;i<7;i++)tone(1100+Math.random()*900,.15+i*.11,.14,"sine",.05);},
+    sting(){tone(98,0,.9,"sawtooth",.09,49);tone(523,0,.3,"triangle",.17);tone(659,.13,.3,"triangle",.17);tone(784,.26,.3,"triangle",.18);tone(1047,.39,.9,"triangle",.2);noise(.36,.6,3000,6000,.05);},
+    rise(){tone(160,0,1.5,"sine",.15,700);noise(0,1.5,180,1400,.1);},
+    fall(){tone(700,0,1,"sine",.13,170);},
+    correct(){[523,659,784].forEach((f,i)=>tone(f,i*.1,.2,"triangle",.2));tone(1047,.3,.5,"triangle",.22);tone(1568,.42,.5,"sine",.07);},
+    wrong(){tone(233,0,.2,"square",.06,196);tone(185,.17,.32,"square",.055,147);},
+    hint(){[1319,1568,1760,2093,2637].forEach((f,i)=>tone(f,i*.07,.3,"sine",.08));},
+    fanfare(){[[523,0],[659,.12],[784,.24],[1047,.36],[784,.52],[1047,.64]].forEach(([f,t0])=>tone(f,t0,.22,"triangle",.2));tone(1319,.8,.9,"triangle",.22);tone(131,.8,.9,"sawtooth",.06);}
+  };
+})();
+addEventListener("pointerdown",()=>SFX.unlock(),{once:true,capture:true});
+
 /* ---------- الجولة ---------- */
 function caption(s){
   if(!s){capEl.style.display="none";return;}
@@ -552,17 +593,23 @@ function stopOutlines(s){
 }
 async function goStop(i,dur){
   S.stop=i; const s=STOPS[i]; caption(s); setOutlines(stopOutlines(s)); setFX(s); ui();
-  await flyTo(stopCam(s),dur==null?2400:dur);
+  const d=dur==null?2400:dur, tok=++stopTok;
+  if(d>0){ s.px!=null?SFX.whoosh(d):SFX.whooshBack(d); }
+  if(FX.lines.length)SFX.water();
+  await flyTo(stopCam(s),d);
+  if(tok!==stopTok)return;
+  if(s.px!=null||s.id==="cmp"){SFX.arrive(); if(FX.call)setTimeout(()=>SFX.pop(),250);}
 }
+let stopTok=0;
 async function play(){
-  const tok=++playTok; playing=true; ui();
+  const tok=++playTok; playing=true; ui(); SFX.sting();
   let i=S.stop>=STOPS.length-1?0:S.stop;
   if(i===0){await goStop(0,1500); if(tok!==playTok)return; await wait(3500);} else i--;
   for(let k=Math.max(1,i+1);k<STOPS.length;k++){
     if(tok!==playTok)return;
     await goStop(k); if(tok!==playTok)return;
     await wait(STOPS[k].px!=null?6500:7000); if(tok!==playTok)return;
-    if(STOPS[k].px!=null){setFX(null);caption(STOPS[0]); await flyTo(Object.assign({},HOME),1900); if(tok!==playTok)return; await wait(1100);}
+    if(STOPS[k].px!=null){setFX(null);caption(STOPS[0]); SFX.whooshBack(1900); await flyTo(Object.assign({},HOME),1900); if(tok!==playTok)return; await wait(1100);}
   }
   if(tok===playTok){playing=false;ui();}
 }
@@ -572,17 +619,17 @@ function stopPlay(){playTok++;playing=false;}
 function attempt(h,p){
   if(!ready)return; const m=M[S.idx]; if(!m||S.res[S.idx])return;
   const c=sample(h.x,h.y);
-  if(c==="legend"){fb("","هذا مفتاح الخريطة. استخدميه لتعرفي معنى الألوان، ثم اضغطي على الخريطة نفسها.");return;}
-  if(c==="unk"){fb("","ضغطتِ على حدود أو كتابة. اضغطي على اللون نفسه.");return;}
+  if(c==="legend"){SFX.tick();fb("","هذا مفتاح الخريطة. استخدميه لتعرفي معنى الألوان، ثم اضغطي على الخريطة نفسها.");return;}
+  if(c==="unk"){SFX.tick();fb("","ضغطتِ على حدود أو كتابة. اضغطي على اللون نفسه.");return;}
   const inside=m.region?inRegion(m.region,h.x,h.y):true, good=m.accept(c);
   if(inside&&good){
     const stars=1;
     S.res[S.idx]={stars,x:h.x,y:h.y,label:m.name||NAMES[c]};
-    S.sel=null; setOutlines([]); rebuildPins(S.idx);
+    S.sel=null; setOutlines([]); rebuildPins(S.idx); SFX.correct();
     fb("ok",`<span class="st">★</span> أحسنتِ! ${m.why}`);
     ui(); return;
   }
-  S.cur.err++; ripple(p);
+  S.cur.err++; ripple(p); SFX.wrong();
   if(m.region)setOutlines([{r:m.region,type:"hint"}]);
   const msg=(c==="sea"||c==="out")?`هذا ${NAMES[c]}. ${m.hint} الإطار المتقطع يدلّك على المكان.`:`ليس هنا. ${m.hint} الإطار المتقطع يدلّك على المكان.`;
   fb("bad",msg); ui();
@@ -590,17 +637,17 @@ function attempt(h,p){
 function fb(cls,html){fbState={cls,html};const el=document.getElementById("fb");if(el){el.className="fb "+cls;el.innerHTML=html;}}
 function ripple(p){const r=document.createElement("div");r.className="ripple";r.style.left=p.x+"px";r.style.top=p.y+"px";pinsEl.appendChild(r);setTimeout(()=>r.remove(),700);}
 function useHint(){
-  const m=M[S.idx]; if(!m||S.res[S.idx])return; S.cur.help=true;
+  const m=M[S.idx]; if(!m||S.res[S.idx])return; S.cur.help=true; SFX.hint();
   if(m.region){setOutlines([{r:m.region,type:"hint"}]);const s=STOPS.find(x=>x.id===m.region);if(s&&gl)flyTo(stopCam(s),1600);fb("",`تلميح: ${m.hint} الإطار المتقطع يحدد مكان البحث، وقرّبتُ الكاميرا منه.`);}
   else{S.sel=m.hintSel;paint();fb("",`تلميح: ${m.hint} أبقيتُ هذا اللون وحده ملوّنًا على الخريطة.`);}
   ui();
 }
-function toggleLens(){S.lensOn=!S.lensOn;if(S.lensOn&&!S.res[S.idx])S.cur.help=true;if(!S.lensOn)hideTip();ui();}
+function toggleLens(){SFX.tick();S.lensOn=!S.lensOn;if(S.lensOn&&!S.res[S.idx])S.cur.help=true;if(!S.lensOn)hideTip();ui();}
 function next(){
   S.sel=null;setOutlines([]);S.lensOn=false;hideTip();
-  if(gl)flyTo(Object.assign({},HOME),1300);
+  if(gl){SFX.whooshBack(1300);flyTo(Object.assign({},HOME),1300);}
   if(S.idx<M.length-1){S.idx++;S.cur={err:0,help:false};fbState={cls:"",html:"اضغطي على الخريطة لتنفيذ المهمة."};}
-  else S.mode="board";
+  else {S.mode="board";setTimeout(()=>SFX.fanfare(),300);}
   ui();
 }
 
@@ -672,7 +719,7 @@ function boardUI(){
   </div>`;
 }
 function bind(){
-  panel.querySelectorAll("[data-sel]").forEach(b=>b.onclick=()=>{S.sel=b.dataset.sel||null;paint();ui();});
+  panel.querySelectorAll("[data-sel]").forEach(b=>b.onclick=()=>{SFX.tick();S.sel=b.dataset.sel||null;paint();ui();});
   panel.querySelectorAll("[data-mode]").forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
   panel.querySelectorAll("[data-stop]").forEach(b=>b.onclick=()=>{stopPlay();goStop(+b.dataset.stop);});
   const on=(id,f)=>{const el=document.getElementById(id);if(el)el.onclick=f;};
@@ -682,14 +729,18 @@ function bind(){
   on("nextStop",()=>{stopPlay();goStop(Math.min(STOPS.length-1,S.stop+1));});
 }
 function setMode(m){
+  SFX.click();
   stopPlay(); S.mode=m; S.sel=null; S.lensOn=false; hideTip(); setTourPin(null); setFX(null);
   if(m==="tour"){goStop(S.stop,1400);return;}
   setOutlines([]); if(gl)flyTo(Object.assign({},HOME),1300); ui();
 }
 ["tour","explore","mission","board"].forEach(t=>document.getElementById("t-"+t).onclick=()=>setMode(t));
-document.getElementById("resetBtn").onclick=()=>{stopPlay();S=fresh();fbState={cls:"",html:"اضغطي على الخريطة لتنفيذ المهمة."};setOutlines([]);rebuildPins();goStop(0,1200);};
-document.getElementById("homeBtn").onclick=()=>{userTook();if(gl)flyTo(Object.assign({},HOME),1300);};
-document.getElementById("flatBtn").onclick=()=>{hsTarget=hsTarget>0?0:1;ui();};
+document.getElementById("resetBtn").onclick=()=>{SFX.click();stopPlay();S=fresh();fbState={cls:"",html:"اضغطي على الخريطة لتنفيذ المهمة."};setOutlines([]);rebuildPins();goStop(0,1200);};
+const sndBtn=document.getElementById("sndBtn");
+function sndUI(){sndBtn.setAttribute("aria-pressed",SFX.on);sndBtn.textContent=SFX.on?"الأصوات: تعمل":"الأصوات: متوقفة";}
+sndBtn.onclick=()=>{SFX.toggle();sndUI();}; sndUI();
+document.getElementById("homeBtn").onclick=()=>{userTook();if(gl){SFX.whooshBack(1300);flyTo(Object.assign({},HOME),1300);}};
+document.getElementById("flatBtn").onclick=()=>{hsTarget=hsTarget>0?0:1;hsTarget?SFX.rise():SFX.fall();ui();};
 document.getElementById("fsBtn").onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}catch(e){document.getElementById("fsBtn").textContent="ملء الشاشة غير متاح هنا";}};
 
 /* ---------- الإقلاع ---------- */
